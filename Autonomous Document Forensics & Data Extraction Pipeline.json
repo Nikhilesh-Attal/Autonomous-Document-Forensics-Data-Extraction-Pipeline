@@ -1,0 +1,427 @@
+{
+  "name": "Autonomous Document Forensics & Data Extraction Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "model": "groq/compound-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        -752,
+        240
+      ],
+      "id": "5e823f2f-5714-431b-8b26-e04b2dbfbdf9",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "0U3P4yVLiL1q3pCc",
+          "name": "Groq account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -1392,
+        16
+      ],
+      "id": "7487562c-46d2-46ab-80aa-2d7cc0ac2e34",
+      "name": "Download file content",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "JYd3OY3dv3b5HpYP",
+          "name": "sathi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 5,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -992,
+        16
+      ],
+      "id": "36b665c3-cec5-4818-922d-df47328f430a",
+      "name": "Process each Doc"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.error_message ? \"Your previous JSON output failed validation. Please fix it.\\n\\nERROR MESSAGE:\\n\" + $json.error_message + \"\\n\\nPREVIOUS BROKEN OUTPUT:\\n\" + $json.raw_ai_output : \"Extract the required data from the following document text:\\n\\n\" + $json.text }}",
+        "options": {
+          "systemMessage": "=You are an enterprise data extraction API. Your ONLY function is to analyze text and output a strictly valid JSON object. \n\nExtract the following information into this exact JSON schema:\n{\n  \"vendor_name\": \"string (Name of the business, store, or vendor. Return null if not found.)\",\n  \"total_amount\": \"number (The final total amount charged. Do not include currency symbols. Return null if not found.)\",\n  \"date\": \"string (The date of the transaction formatted as YYYY-MM-DD. Return null if not found.)\"\n}\n\nCRITICAL RULES:\n1. Output ONLY the raw JSON object. \n2. Do NOT wrap the JSON in markdown formatting blocks (e.g., do not use ```json).\n3. Do NOT include any greetings, explanations, or conversational filler. \n4. Your response must begin with \"{\" and end with \"}\"."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -752,
+        32
+      ],
+      "id": "1500185e-fc5d-4f46-b60d-55c7e8fe8bdd",
+      "name": "AI Data Extractor"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nfor (const item of $input.all()) {\n  // 1. Initialize or increment the retry counter\n  // If it doesn't exist yet, it starts at 0, then immediately becomes 1.\n  let currentRetry = item.json.retry_count || 0;\n  currentRetry++; \n\n  try {\n    let aiResponse = item.json.output || item.json.text; \n    aiResponse = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();\n    const data = JSON.parse(aiResponse);\n    \n    if (!data.vendor_name || data.total_amount === undefined || !data.date) {\n      throw new Error(\"Missing or invalid required fields in JSON.\");\n    }\n    \n    // SUCCESS: Attach data and true flag\n    results.push({ json: { ...data, isValid: true } });\n    \n  } catch (err) {\n    // FAILURE: Attach the error, false flag, AND the new retry count\n    results.push({ \n      json: { \n        ...item.json, // Preserves the original text so Groq can try again\n        raw_ai_output: item.json.output || item.json.text, \n        error_message: err.message, \n        isValid: false,\n        retry_count: currentRetry \n      } \n    });\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        32
+      ],
+      "id": "69823ab4-38fd-4ea2-8cad-d5b7ec880eaa",
+      "name": "Validate JSON Schema"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "73a2810d-837b-407d-a0b3-e30ddecc0ce4",
+              "leftValue": "={{ $json.isValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -192,
+        32
+      ],
+      "id": "1f488edd-fea8-4eb1-9090-e4c8d676593e",
+      "name": "Is JSON Valid?"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appRFjY7kU8rmm77k",
+          "mode": "list",
+          "cachedResultName": "Autonomous Document Forensics & Data Extraction Pipeline",
+          "cachedResultUrl": "https://airtable.com/appRFjY7kU8rmm77k"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblHeDldFnbJKjsrY",
+          "mode": "list",
+          "cachedResultName": "Table 1",
+          "cachedResultUrl": "https://airtable.com/appRFjY7kU8rmm77k/tblHeDldFnbJKjsrY"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Vender_Name": "={{ $json.vendor_name }}",
+            "Amount": "={{ $json.total_amount }}",
+            "Date": "={{ $json.date }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Vender_Name",
+              "displayName": "Vender_Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        32,
+        -48
+      ],
+      "id": "0d6add0d-7b50-4e63-9c10-65cb0bfd9de6",
+      "name": "Save record",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "ACnm4aUyc8Md3WTG",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "17ifQRnSpt4f_2rbfHUYJ3rD6lc8mFhiW",
+          "mode": "list",
+          "cachedResultName": "urvar bhumi",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/17ifQRnSpt4f_2rbfHUYJ3rD6lc8mFhiW"
+        },
+        "event": "fileUpdated",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1584,
+        16
+      ],
+      "id": "0085fea0-c910-4a99-b4f2-549667aeaaf3",
+      "name": "Google Drive Trigger",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "JYd3OY3dv3b5HpYP",
+          "name": "sathi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "destinationKey": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1184,
+        16
+      ],
+      "id": "5f965d41-42be-4712-a2e0-fbadf71b09c8",
+      "name": "Extract text from downloaded txt file"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "be092db2-f0bd-4e8f-bc94-75ffdf917936",
+              "leftValue": "={{ $json.retry_count }}",
+              "rightValue": 2,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        16,
+        128
+      ],
+      "id": "37c319eb-4406-43f9-bf2a-fe502b47f130",
+      "name": "Circuit Breaker"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Data Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file content": {
+      "main": [
+        [
+          {
+            "node": "Extract text from downloaded txt file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process each Doc": {
+      "main": [
+        [],
+        [
+          {
+            "node": "AI Data Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Data Extractor": {
+      "main": [
+        [
+          {
+            "node": "Validate JSON Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate JSON Schema": {
+      "main": [
+        [
+          {
+            "node": "Is JSON Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is JSON Valid?": {
+      "main": [
+        [
+          {
+            "node": "Save record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Circuit Breaker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save record": {
+      "main": [
+        [
+          {
+            "node": "Process each Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download file content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract text from downloaded txt file": {
+      "main": [
+        [
+          {
+            "node": "Process each Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Circuit Breaker": {
+      "main": [
+        [
+          {
+            "node": "Process each Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "5778e867-65fd-485d-ad39-566c50a5e45c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "219e61b1f9e9ad8227ed7f07d7f7f514500d421625427035c4e290241bd19115"
+  },
+  "id": "QAr1kE5mEK8X4jhu",
+  "tags": []
+}
